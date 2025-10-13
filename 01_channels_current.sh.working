@@ -1,0 +1,237 @@
+#!/usr/bin/env bash
+# yt_tabs_dump.sh — Lista tabs de canales de YouTube (videos/shorts/streams) a TSV
+# Requisitos: bash 4+, yt-dlp 2024+, cookies en formato Netscape (opcional pero recomendado)
+
+set -euo pipefail
+
+# =========================
+# CONFIG
+# =========================
+
+# Binario de yt-dlp (puedes setear por ENV)
+YT_BIN="${YT_BIN:-yt-dlp}"
+
+# Archivo de cookies en formato Netscape. MUY recomendado, si no obtendrás 0 filas a menudo.
+COOKIES_FILE="${COOKIES_FILE:-/apps/molder/get-channel-lists/cookies.txt}"
+
+# Directorio de salida
+OUT_DIR="${OUT_DIR:-./out-tsv}"
+mkdir -p "$OUT_DIR"
+
+# Cliente de extractor para tabs. android | ios | web. android suele ser el más estable para /videos /shorts /streams
+EXTRACTOR_CLIENT="${EXTRACTOR_CLIENT:-android}"
+
+# Máximo de ítems por tab (0 = sin límite)
+MAX_ITEMS="${MAX_ITEMS:-0}"
+
+# Tabs por defecto (se puede sobrescribir con ENV TABS_ARG="videos,shorts,streams" o con --tabs)
+TABS_ARG_DEFAULT="videos,shorts,streams"
+
+# Canales por defecto (prefijo => URL). Edita a gusto.
+# Usa @handle o URL de /channel/UC...
+declare -A CHANNELS_DEFAULT=(
+  [javioliveira]="https://www.youtube.com/@JaviOliveira"
+  [lasalseria]="https://www.youtube.com/@javielcanijo"
+  [telesalseo]="https://www.youtube.com/@tvsalseo"
+  [dalas]="https://www.youtube.com/@DalasReview"
+  [dalassinfiltros]="https://www.youtube.com/@DTeamVlogs"
+  [santuario]="https://www.youtube.com/@santuariolibertad"
+)
+
+# =========================
+# LOG / UTILS
+# =========================
+log()  { printf '[%s] %s\n' "$(date '+%F %T')" "$*"; }
+warn() { printf '[%s] [WARN] %s\n' "$(date '+%F %T')" "$*" >&2; }
+die()  { printf '[%s] [ERR ] %s\n'  "$(date '+%F %T')" "$*" >&2; exit 1; }
+
+command -v "$YT_BIN" >/dev/null 2>&1 || die "No encuentro $YT_BIN en PATH."
+
+# =========================
+# YT-DLP ARGS COMUNES
+# =========================
+# Nota: --flat-playlist evita llamadas costosas por ítem. Imprimimos campos de la playlist/tab directamente.
+_ytdlp_common=(
+  --ignore-errors
+  --no-warnings
+  --flat-playlist
+  --sleep-requests 1
+  --concurrent-fragments 1
+  --geo-bypass
+#  --compat-options channel-redirect
+  --extractor-args "youtubetab:client=${EXTRACTOR_CLIENT}"
+)
+
+# Incluye cookies si existen
+if [[ -f "$COOKIES_FILE" ]]; then
+  _ytdlp_common+=(--cookies "$COOKIES_FILE")
+else
+  warn "No hay cookies en $COOKIES_FILE; YouTube puede devolver 0 resultados."
+fi
+
+# Límite de items si se pide
+if [[ "${MAX_ITEMS}" =~ ^[0-9]+$ ]] && (( MAX_ITEMS > 0 )); then
+  _ytdlp_common+=(--playlist-end "$MAX_ITEMS")
+fi
+
+# Wrapper
+YT() {
+  "$YT_BIN" "${_ytdlp_common[@]}" "$@"
+}
+
+# =========================
+# FUNCIONES
+# =========================
+
+# Valida una tab
+valid_tab() {
+  case "${1:-}" in
+    videos|shorts|streams) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+# Construye la URL de tab
+tab_url() {
+  local base="$1" tab="$2"
+  echo "${base%/}/${tab}"
+}
+
+# Lista filas (TSV) de una tab (id, title, url, playlist_title, live_status)
+list_rows_tab() {
+  local base="$1" tab="$2" url
+  valid_tab "$tab" || die "Tab inválida: $tab (usa videos|shorts|streams)"
+  url="$(tab_url "$base" "$tab")"
+
+  # Con --flat-playlist podemos imprimir directamente los campos de los ítems referenciados en la tab
+  # webpage_url suele venir como watch?v=..., si no, lo construimos como fallback vía id
+  YT --print '%(id)s\t%(title)s\t%(webpage_url)s\t%(playlist_title)s\t%(live_status)s' "$url" \
+    | awk -F'\t' '
+        BEGIN{OFS="\t"}
+        {
+          id=$1; title=$2; web=$3; plist=$4; live=$5;
+          if (web=="" || web=="NA") web="https://www.youtube.com/watch?v=" id;
+          print id, title, web, plist, live;
+        }' \
+    | sed '/^\s*$/d'
+}
+
+# Vuelca la tab a un archivo TSV y reporta conteo
+dump_tab_tsv() {
+  local base="$1" tab="$2" out="$3"
+  : > "$out"
+
+  # Escribimos encabezado opcional: descomenta si lo quieres
+  # echo -e "id\ttitle\turl\tplaylist_title\tlive_status" >> "$out"
+
+  if ! list_rows_tab "$base" "$tab" >> "$out"; then
+    warn "Fallo al listar ${tab} de ${base}"
+  fi
+
+  # Contar filas (si pusiste encabezado, resta 1)
+  local n
+  n=$(wc -l < "$out" | awk '{print $1}')
+  if (( n == 0 )); then
+    warn "0 filas para ${base} ${tab}. Suele ser por falta de cookies o bloqueo temporal."
+    warn "Prueba manual: $YT_BIN -v ${_ytdlp_common[*]} --print '%(id)s\t%(title)s' '$(tab_url "$base" "$tab")' | head"
+  fi
+  log "OK -> $(basename "$out") (${n} filas)"
+}
+
+# =========================
+# MAIN
+# =========================
+
+usage() {
+  cat <<EOF
+Uso:
+  $(basename "$0") [opciones]
+
+Opciones:
+  --tabs T1,T2,...     Tabs a procesar (por defecto: ${TABS_ARG_DEFAULT})
+                       Valores válidos: videos,shorts,streams
+  --only PREFIX1,...   Procesa solo estos prefijos (coinciden con keys de CHANNELS_DEFAULT)
+  --out DIR            Directorio de salida (por defecto: ${OUT_DIR})
+  --max N              Máximo de ítems por tab (equivalente a MAX_ITEMS)
+  --client C           Cliente extractor (android|ios|web). Por defecto: ${EXTRACTOR_CLIENT}
+  -h|--help            Ayuda
+
+Variables de entorno útiles:
+  YT_BIN, COOKIES_FILE, OUT_DIR, MAX_ITEMS, EXTRACTOR_CLIENT, TABS_ARG
+
+Ejemplos:
+  TABS_ARG="videos,shorts" ./$(basename "$0")
+  ./$(basename "$0") --tabs videos,streams --only dalas,lasalseria --max 200
+  EXTRACTOR_CLIENT=ios ./$(basename "$0")
+EOF
+}
+
+TABS_ARG="${TABS_ARG:-$TABS_ARG_DEFAULT}"
+ONLY_ARG=""
+
+# Parseo simple
+while (( $# )); do
+  case "$1" in
+    --tabs) shift; TABS_ARG="${1:-$TABS_ARG}";;
+    --only) shift; ONLY_ARG="${1:-}";;
+    --out)  shift; OUT_DIR="${1:-$OUT_DIR}"; mkdir -p "$OUT_DIR";;
+    --max)  shift; MAX_ITEMS="${1:-$MAX_ITEMS}";;
+    --client) shift; EXTRACTOR_CLIENT="${1:-$EXTRACTOR_CLIENT}";;
+    -h|--help) usage; exit 0;;
+    *) die "Opción no reconocida: $1 (usa -h)";;
+  esac
+  shift || true
+done
+
+# Reaplicar args dependientes si cambiaron por flags
+# (reconstruimos comunes por si cambiaron MAX_ITEMS/EXTRACTOR_CLIENT)
+_ytdlp_common=(
+  --ignore-errors --no-warnings --flat-playlist
+  --sleep-requests 1 --concurrent-fragments 1 --geo-bypass
+#  --compat-options channel-redirect
+  --extractor-args "youtubetab:client=${EXTRACTOR_CLIENT}"
+)
+if [[ -f "$COOKIES_FILE" ]]; then
+  _ytdlp_common+=(--cookies "$COOKIES_FILE")
+else
+  warn "No hay cookies en $COOKIES_FILE; YouTube puede devolver 0 resultados."
+fi
+if [[ "${MAX_ITEMS}" =~ ^[0-9]+$ ]] && (( MAX_ITEMS > 0  )); then
+  _ytdlp_common+=(--playlist-end "$MAX_ITEMS")
+fi
+
+# Preparar lista de tabs
+IFS=',' read -r -a TABS <<< "$TABS_ARG"
+for tab in "${TABS[@]}"; do
+  tab="$(echo "$tab" | xargs)"
+  valid_tab "$tab" || die "Tab inválida: $tab (usa videos|shorts|streams)"
+done
+
+# Preparar lista de prefijos
+declare -a PREFS
+if [[ -n "$ONLY_ARG" ]]; then
+  IFS=',' read -r -a PREFS <<< "$ONLY_ARG"
+  # Validar que existan
+  for p in "${PREFS[@]}"; do
+    [[ -n "${CHANNELS_DEFAULT[$p]:-}" ]] || die "Prefijo no existe en CHANNELS_DEFAULT: $p"
+  done
+else
+  # Todos los prefijos del map
+  for p in "${!CHANNELS_DEFAULT[@]}"; do PREFS+=("$p"); done
+fi
+
+log "Cliente: ${EXTRACTOR_CLIENT} | Max: ${MAX_ITEMS} | Cookies: $( [[ -f "$COOKIES_FILE" ]] && echo 'sí' || echo 'no' )"
+log "Tabs: ${TABS_ARG}"
+log "Prefijos: ${PREFS[*]}"
+
+# Dump de todo
+for prefix in "${PREFS[@]}"; do
+  url="${CHANNELS_DEFAULT[$prefix]}"
+  for tab in "${TABS[@]}"; do
+    out="${OUT_DIR}/${prefix}.${tab}.tsv"
+    dump_tab_tsv "$url" "$tab" "$out"
+  done
+done
+
+log "Terminado."
+
