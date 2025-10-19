@@ -29,3 +29,14 @@ logs/
 *.bak
 *.cache
 *.tmp
+
+# Heavy / temp
+subtitles/store/
+subtitles/removed/
+subtitles/last
+subtitles/*/*.vtt
+subtitles/*/*.srt
+logs/
+*.bak
+*.cache
+*.tmp
