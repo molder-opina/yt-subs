@@ -1,3 +1,10 @@
 # Ignorar carpeta de logs
 logs/
+bin/
+config/
 !logs/.gitkeep
+
+# Local temp
+/tmp/
+*.swp
+
