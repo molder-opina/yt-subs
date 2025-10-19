@@ -18,3 +18,14 @@ Local temp / caches / outputs
 /subtitles//.srt
 *.cache
 *.bak
+
+# Heavy / temp
+subtitles/store/
+subtitles/removed/
+subtitles/last
+subtitles/*/*.vtt
+subtitles/*/*.srt
+logs/
+*.bak
+*.cache
+*.tmp
