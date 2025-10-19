@@ -8,3 +8,13 @@ config/
 /tmp/
 *.swp
 
+Local temp / caches / outputs
+/tmp/
+/logs/
+/subtitles/store/
+/subtitles/removed/
+/subtitles/last/
+/subtitles//.vtt
+/subtitles//.srt
+*.cache
+*.bak
