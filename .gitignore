@@ -1,0 +1,3 @@
+# Ignorar carpeta de logs
+logs/
+!logs/.gitkeep

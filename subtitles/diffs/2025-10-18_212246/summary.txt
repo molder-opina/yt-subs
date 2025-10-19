@@ -1,0 +1,21 @@
+Comparación PREV=2025-10-13_155040  vs  LAST=2025-10-18_212246
+Filtro tabs: videos,shorts,streams
+
+dalas.shorts	new=0	removed=0
+dalas.streams	new=1	removed=0
+dalas.videos	new=3	removed=0
+dalassinfiltros.shorts	new=0	removed=0
+dalassinfiltros.streams	new=0	removed=0
+dalassinfiltros.videos	new=0	removed=0
+javioliveira.shorts	new=6	removed=2
+javioliveira.streams	new=0	removed=0
+javioliveira.videos	new=20	removed=18
+lasalseria.shorts	new=0	removed=0
+lasalseria.streams	new=4	removed=0
+lasalseria.videos	new=15	removed=0
+santuario.shorts	new=0	removed=0
+santuario.streams	new=9	removed=2
+santuario.videos	new=56	removed=52
+telesalseo.shorts	new=0	removed=0
+telesalseo.streams	new=1	removed=0
+telesalseo.videos	new=4	removed=0

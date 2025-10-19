@@ -1,0 +1,5 @@
+Comparación PREV=2025-10-18_212246  vs  LAST=2025-10-18_222713
+Filtro tabs: videos,shorts,streams
+
+dalassinfiltros.shorts	new=0	removed=0
+dalassinfiltros.videos	new=0	removed=0
